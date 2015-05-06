@@ -1,0 +1,497 @@
+Sub PAConvert()
+    
+    Dim currentX As Integer
+    Dim currentY As Integer
+    
+    Dim generalDescriptionText As String
+    Dim responsibilityText As String
+    Dim competencyText As String
+    Dim generalText As String
+        
+' *** Column Positions of Export Spreadsheet ***
+    Const PGCCol = 1
+    Const PositionCol = 2
+    Const PositionTitleCol = 3
+    Const GeneralDescriptionCol = 4
+    Const ResponsibilityCol = 5
+    Const CompetencyCol = 6
+    Const GeneralTextCol = 7
+    
+    Application.ScreenUpdating = False       'No updating of screens while macro is running Disables Screen updating while macro is running
+    Application.DisplayAlerts = False        'Disables alerts while macro is running
+    
+    ' *** Initialize standard values for select fields ***
+    planVersion = "01"
+    objType = "S"
+    planStatus = "1"
+    begda = "20140801"
+    endda = "99991231"
+    infotype = "1002"
+    
+    Set origWorksheet = ActiveWorkbook.ActiveSheet
+    
+    Set newWorksheet = ActiveWorkbook.Sheets.Add(, origWorksheet)
+    newWorksheet.Name = "Export"
+    origWorksheet.Activate
+    currentRowToWrite = 1
+    
+    Call ClearDescriptionVariables
+    
+'   Start at the first column of the second row to ignore header row
+    currentX = 2
+    currentY = 1
+    
+    Do While Cells(currentX, 2).Value <> ""
+        
+        objID = Cells(currentX, PositionCol).Value
+        generalDescriptionText = Cells(currentX, GeneralDescriptionCol).Value
+        responsibilityText = Cells(currentX, ResponsibilityCol).Value
+        competencyText = Cells(currentX, CompetencyCol).Value
+        generalText = Cells(currentX, GeneralTextCol).Value
+        
+ '       If generalDescriptionText = "" Then
+ '           generalDescriptionText = "None."
+ '       End If
+ '       If responsibilityText = "" Then
+ '           responsibilityText = "None."
+ '       End If
+ '       If competencyText = "" Then
+ '           competencyText = "None."
+ '       End If
+ '       If generalText = "" Then
+ '           generalText = "None."
+ '       End If
+            
+        subtype = "0001"
+        Call SplitDescriptions(generalDescriptionText)
+        Call WriteRecord
+        Call ClearDescriptionVariables
+        
+        subtype = "6032"
+        Call SplitDescriptions(responsibilityText)
+        Call WriteRecord
+        Call ClearDescriptionVariables
+            
+        subtype = "6033"
+        Call SplitDescriptions(competencyText)
+        Call WriteRecord
+        Call ClearDescriptionVariables
+        
+        subtype = "0120"
+        Call SplitDescriptions(generalText)
+        Call WriteRecord
+        Call ClearDescriptionVariables
+        
+        currentY = 1
+        currentX = currentX + 1
+    Loop
+    
+    Call SaveFile
+    Call CleanupFile
+    
+    Sheets("Export").Delete
+    
+    MsgBox "Conversion Process Complete"
+    
+End Sub
+
+Private Sub SplitDescriptions(Description As String)
+    
+    Dim tempLine As String
+    Dim wordArray() As String
+    Const space = " "
+    Const threeSpace = "   "
+    Const fourSpace = "    "
+    Const fiveSpace = "     "
+'    Const indent = "µ"
+    Const break = "Œ"
+    Const doubleBreak = "Æ"
+    Const maxCharPerLine = 72
+        
+
+    Description = Replace(Description, vbCrLf, break)
+    Description = Replace(Description, vbLf, break)
+    Description = Replace(Description, vbCr, break)
+    Description = Replace(Description, vbNewLine, break)
+  '  Description = Replace(Description, "Œ ", "Œµ")        'break + space -> break + indent
+    Description = Replace(Description, fiveSpace, break)
+    Description = Replace(Description, fourSpace, break)
+    Description = Replace(Description, threeSpace, break)
+    Description = Replace(Description, "ŒŒ", " Æ")        'two breaks -> space + doubleBreak
+    Description = Replace(Description, break, " Œ")       'break - > space + break
+    
+    wordArray = Split(Description)
+    currentIndex = 0
+    
+    If UBound(wordArray) > 0 Then
+        wordArray(1) = Replace(wordArray(1), break, "")   'Get rid of any leading line breaks created from an indentation of the first paragraph
+    End If
+    
+    Do While currentIndex <= UBound(wordArray)
+    
+        tempLine = ""
+        
+        Do While Len(tempLine) < maxCharPerLine
+            'This is the 'IF' statement I wanted to use, but VBA checks all conditions of 'AND' regardless if the first condition fails...  so its ugly now
+            'If currentIndex <= UBound(wordArray) And (Len(tempLine) + Len(wordArray(currentIndex))) < maxCharPerLine Then
+            
+            If currentIndex <= UBound(wordArray) Then
+                If (Len(tempLine) + Len(wordArray(currentIndex))) < maxCharPerLine Then
+                    'If the first character of the word is a linebreak:
+                    '   1) strip the character off
+                    '   2) Exit the Loop so the tempLine gets written
+                    '   3) The next tempLine begins with the current word
+                    If Left(wordArray(currentIndex), 1) = break Then
+                        wordArray(currentIndex) = Right(wordArray(currentIndex), (Len(wordArray(currentIndex)) - 1))
+                        Exit Do
+                    ElseIf Left(wordArray(currentIndex), 1) = doubleBreak Then
+                        wordArray(currentIndex) = Replace(wordArray(currentIndex), doubleBreak, break)
+                        tempLine = tempLine & space
+                        Exit Do
+                    End If
+                    
+                    If wordArray(currentIndex) <> "" Then
+                        tempLine = tempLine & wordArray(currentIndex) & space
+                    End If
+                    
+                    currentIndex = currentIndex + 1
+                    
+                Else
+                    Exit Do
+                End If
+            Else
+                Exit Do
+            End If
+        Loop
+        
+        ' When converting from an Excel file to a .txt format, if a comma is in a string, the resulting text will have double quotes around it.
+        ' To circumvent this issue, commas are replaced with caret marks.  Caret marks in the .txt file are returned to commas in the CleanUpFile() subroutine.
+        tempLine = Replace(tempLine, ",", "^")
+        
+        ' Indent placeholder returned to actual spaces.
+        'tempLine = Replace(tempLine, indent, threeSpace)
+   
+        If textLine01 = "" Then
+            textLine01 = tempLine
+        ElseIf textLine02 = "" Then
+            textLine02 = tempLine
+        ElseIf textLine03 = "" Then
+            textLine03 = tempLine
+        ElseIf textLine04 = "" Then
+            textLine04 = tempLine
+        ElseIf textLine05 = "" Then
+            textLine05 = tempLine
+        ElseIf textLine06 = "" Then
+            textLine06 = tempLine
+        ElseIf textLine07 = "" Then
+            textLine07 = tempLine
+        ElseIf textLine08 = "" Then
+            textLine08 = tempLine
+        ElseIf textLine09 = "" Then
+            textLine09 = tempLine
+        ElseIf textLine10 = "" Then
+            textLine10 = tempLine
+        ElseIf textLine11 = "" Then
+            textLine11 = tempLine
+        ElseIf textLine12 = "" Then
+            textLine12 = tempLine
+        ElseIf textLine13 = "" Then
+            textLine13 = tempLine
+        ElseIf textLine14 = "" Then
+            textLine14 = tempLine
+        ElseIf textLine15 = "" Then
+            textLine15 = tempLine
+        ElseIf textLine16 = "" Then
+            textLine16 = tempLine
+        ElseIf textLine17 = "" Then
+            textLine17 = tempLine
+        ElseIf textLine18 = "" Then
+            textLine18 = tempLine
+        ElseIf textLine19 = "" Then
+            textLine19 = tempLine
+        ElseIf textLine20 = "" Then
+            textLine20 = tempLine
+        ElseIf textLine21 = "" Then
+            textLine21 = tempLine
+        ElseIf textLine22 = "" Then
+            textLine22 = tempLine
+        ElseIf textLine23 = "" Then
+            textLine23 = tempLine
+        ElseIf textLine24 = "" Then
+            textLine24 = tempLine
+        ElseIf textLine25 = "" Then
+            textLine25 = tempLine
+        ElseIf textLine26 = "" Then
+            textLine26 = tempLine
+        ElseIf textLine27 = "" Then
+            textLine27 = tempLine
+        ElseIf textLine28 = "" Then
+            textLine28 = tempLine
+        ElseIf textLine29 = "" Then
+            textLine29 = tempLine
+        ElseIf textLine30 = "" Then
+            textLine30 = tempLine
+        ElseIf textLine31 = "" Then
+            textLine31 = tempLine
+        ElseIf textLine32 = "" Then
+            textLine32 = tempLine
+        ElseIf textLine33 = "" Then
+            textLine33 = tempLine
+        ElseIf textLine34 = "" Then
+            textLine34 = tempLine
+        ElseIf textLine35 = "" Then
+            textLine35 = tempLine
+        ElseIf textLine36 = "" Then
+            textLine36 = tempLine
+        ElseIf textLine37 = "" Then
+            textLine37 = tempLine
+        ElseIf textLine38 = "" Then
+            textLine38 = tempLine
+        ElseIf textLine39 = "" Then
+            textLine39 = tempLine
+        ElseIf textLine40 = "" Then
+            textLine40 = tempLine
+        ElseIf textLine41 = "" Then
+            textLine41 = tempLine
+        ElseIf textLine42 = "" Then
+            textLine42 = tempLine
+        Else
+            Exit Do
+        End If
+        
+    Loop
+
+End Sub
+
+Private Sub WriteRecord()
+
+    newWorksheet.Activate
+    Cells.NumberFormat = "@"
+    Cells(currentRowToWrite, 1) = planVersion
+    Cells(currentRowToWrite, 2) = objType
+    Cells(currentRowToWrite, 3) = objID
+    Cells(currentRowToWrite, 4) = planStatus
+    Cells(currentRowToWrite, 5) = begda
+    Cells(currentRowToWrite, 6) = endda
+    Cells(currentRowToWrite, 7) = infotype
+    Cells(currentRowToWrite, 8) = subtype
+    Cells(currentRowToWrite, 9) = textFormat01
+    Cells(currentRowToWrite, 10) = textLine01
+    Cells(currentRowToWrite, 11) = textFormat02
+    Cells(currentRowToWrite, 12) = textLine02
+    Cells(currentRowToWrite, 13) = textFormat03
+    Cells(currentRowToWrite, 14) = textLine03
+    Cells(currentRowToWrite, 15) = textFormat04
+    Cells(currentRowToWrite, 16) = textLine04
+    Cells(currentRowToWrite, 17) = textFormat05
+    Cells(currentRowToWrite, 18) = textLine05
+    Cells(currentRowToWrite, 19) = textFormat06
+    Cells(currentRowToWrite, 20) = textLine06
+    Cells(currentRowToWrite, 21) = textFormat07
+    Cells(currentRowToWrite, 22) = textLine07
+    Cells(currentRowToWrite, 23) = textFormat08
+    Cells(currentRowToWrite, 24) = textLine08
+    Cells(currentRowToWrite, 25) = textFormat09
+    Cells(currentRowToWrite, 26) = textLine09
+    Cells(currentRowToWrite, 27) = textFormat10
+    Cells(currentRowToWrite, 28) = textLine10
+    Cells(currentRowToWrite, 29) = textFormat11
+    Cells(currentRowToWrite, 30) = textLine11
+    Cells(currentRowToWrite, 31) = textFormat12
+    Cells(currentRowToWrite, 32) = textLine12
+    Cells(currentRowToWrite, 33) = textFormat13
+    Cells(currentRowToWrite, 34) = textLine13
+    Cells(currentRowToWrite, 35) = textFormat14
+    Cells(currentRowToWrite, 36) = textLine14
+    Cells(currentRowToWrite, 37) = textFormat15
+    Cells(currentRowToWrite, 38) = textLine15
+    Cells(currentRowToWrite, 39) = textFormat16
+    Cells(currentRowToWrite, 40) = textLine16
+    Cells(currentRowToWrite, 41) = textFormat17
+    Cells(currentRowToWrite, 42) = textLine17
+    Cells(currentRowToWrite, 43) = textFormat18
+    Cells(currentRowToWrite, 44) = textLine18
+    Cells(currentRowToWrite, 45) = textFormat19
+    Cells(currentRowToWrite, 46) = textLine19
+    Cells(currentRowToWrite, 47) = textFormat20
+    Cells(currentRowToWrite, 48) = textLine20
+    Cells(currentRowToWrite, 49) = textFormat21
+    Cells(currentRowToWrite, 50) = textLine21
+    Cells(currentRowToWrite, 51) = textFormat22
+    Cells(currentRowToWrite, 52) = textLine22
+    Cells(currentRowToWrite, 53) = textFormat23
+    Cells(currentRowToWrite, 54) = textLine23
+    Cells(currentRowToWrite, 55) = textFormat24
+    Cells(currentRowToWrite, 56) = textLine24
+    Cells(currentRowToWrite, 57) = textFormat25
+    Cells(currentRowToWrite, 58) = textLine25
+    Cells(currentRowToWrite, 59) = textFormat26
+    Cells(currentRowToWrite, 60) = textLine26
+    Cells(currentRowToWrite, 61) = textFormat27
+    Cells(currentRowToWrite, 62) = textLine27
+    Cells(currentRowToWrite, 63) = textFormat28
+    Cells(currentRowToWrite, 64) = textLine28
+    Cells(currentRowToWrite, 65) = textFormat29
+    Cells(currentRowToWrite, 66) = textLine29
+    Cells(currentRowToWrite, 67) = textFormat30
+    Cells(currentRowToWrite, 68) = textLine30
+    Cells(currentRowToWrite, 69) = textFormat31
+    Cells(currentRowToWrite, 70) = textLine31
+    Cells(currentRowToWrite, 71) = textFormat32
+    Cells(currentRowToWrite, 72) = textLine32
+    Cells(currentRowToWrite, 73) = textFormat33
+    Cells(currentRowToWrite, 74) = textLine33
+    Cells(currentRowToWrite, 75) = textFormat34
+    Cells(currentRowToWrite, 76) = textLine34
+    Cells(currentRowToWrite, 77) = textFormat35
+    Cells(currentRowToWrite, 78) = textLine35
+    Cells(currentRowToWrite, 79) = textFormat36
+    Cells(currentRowToWrite, 80) = textLine36
+    Cells(currentRowToWrite, 81) = textFormat37
+    Cells(currentRowToWrite, 82) = textLine37
+    Cells(currentRowToWrite, 83) = textFormat38
+    Cells(currentRowToWrite, 84) = textLine38
+    Cells(currentRowToWrite, 85) = textFormat39
+    Cells(currentRowToWrite, 86) = textLine39
+    Cells(currentRowToWrite, 87) = textFormat40
+    Cells(currentRowToWrite, 88) = textLine40
+    Cells(currentRowToWrite, 89) = textFormat41
+    Cells(currentRowToWrite, 90) = textLine41
+    Cells(currentRowToWrite, 91) = textFormat42
+    Cells(currentRowToWrite, 92) = textLine42
+    
+    currentRowToWrite = currentRowToWrite + 1
+    origWorksheet.Activate
+    
+End Sub
+
+Private Sub ClearDescriptionVariables()
+
+    textFormat01 = ""
+    textFormat02 = ""
+    textFormat03 = ""
+    textFormat04 = ""
+    textFormat05 = ""
+    textFormat06 = ""
+    textFormat07 = ""
+    textFormat08 = ""
+    textFormat09 = ""
+    textFormat10 = ""
+    textFormat11 = ""
+    textFormat12 = ""
+    textFormat13 = ""
+    textFormat14 = ""
+    textFormat15 = ""
+    textFormat16 = ""
+    textFormat17 = ""
+    textFormat18 = ""
+    textFormat19 = ""
+    textFormat20 = ""
+    textFormat21 = ""
+    textFormat22 = ""
+    textFormat23 = ""
+    textFormat24 = ""
+    textFormat25 = ""
+    textFormat26 = ""
+    textFormat27 = ""
+    textFormat28 = ""
+    textFormat29 = ""
+    textFormat30 = ""
+    textFormat31 = ""
+    textFormat32 = ""
+    textFormat33 = ""
+    textFormat34 = ""
+    textFormat35 = ""
+    textFormat36 = ""
+    textFormat37 = ""
+    textFormat38 = ""
+    textFormat39 = ""
+    textFormat40 = ""
+    textFormat41 = ""
+    textFormat42 = ""
+    textLine01 = ""
+    textLine02 = ""
+    textLine03 = ""
+    textLine04 = ""
+    textLine05 = ""
+    textLine06 = ""
+    textLine07 = ""
+    textLine08 = ""
+    textLine09 = ""
+    textLine10 = ""
+    textLine11 = ""
+    textLine12 = ""
+    textLine13 = ""
+    textLine14 = ""
+    textLine15 = ""
+    textLine16 = ""
+    textLine17 = ""
+    textLine18 = ""
+    textLine19 = ""
+    textLine20 = ""
+    textLine21 = ""
+    textLine22 = ""
+    textLine23 = ""
+    textLine24 = ""
+    textLine25 = ""
+    textLine26 = ""
+    textLine27 = ""
+    textLine28 = ""
+    textLine29 = ""
+    textLine30 = ""
+    textLine31 = ""
+    textLine32 = ""
+    textLine33 = ""
+    textLine34 = ""
+    textLine35 = ""
+    textLine36 = ""
+    textLine37 = ""
+    textLine38 = ""
+    textLine39 = ""
+    textLine40 = ""
+    textLine41 = ""
+    textLine42 = ""
+    
+End Sub
+
+Private Sub SaveFile()
+
+
+    Dim xlpath As String
+    
+    xlName = Application.GetSaveAsFilename(, fileFilter:="Text Files (*.txt),  *.txt")
+
+    newWorksheet.Copy                                               'Copies the worksheet to a new (active) workbook
+    ActiveWorkbook.SaveAs fileName:=xlName, _
+        FileFormat:=xlCurrentPlatformText, CreateBackup:=False      'Save data as tab delimited text
+    ActiveWorkbook.Close SaveChanges:=False                         'Close the TXT workbook
+    
+    origWorksheet.Activate
+    
+End Sub
+
+Private Sub CleanupFile()
+
+    Dim lineBuffer As String
+    Dim tempFile As String
+    Dim openFileNum As Integer
+    
+    
+    openFileNum = FreeFile
+    Open xlName For Input As openFileNum
+    
+    Do Until EOF(openFileNum)
+        Line Input #openFileNum, lineBuffer
+        tempFile = tempFile & lineBuffer & vbCrLf
+    Loop
+    
+    Close openFileNum
+    
+    tempFile = Replace(tempFile, "^", ",")
+    
+    openFileNum = FreeFile
+    Open xlName For Output As openFileNum
+    Print #openFileNum, tempFile
+    Close openFileNum
+
+End Sub
